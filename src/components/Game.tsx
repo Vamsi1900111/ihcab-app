@@ -122,12 +122,12 @@ const Game: React.FC<GameProps> = ({ onLogin }) => {
     e.preventDefault();
     const cleanCode = code.trim().toLowerCase();
     
-    if (cleanCode === 'hi asthipanjaram') {
+    if (cleanCode === 'asthipanjaram') {
       onLogin('girl');
-      toast.success("Welcome back!");
+      toast.success("Welcome back, Bhavya!");
     } else if (cleanCode === 'bachii') {
       onLogin('boy');
-      toast.success("Welcome back!");
+      toast.success("Welcome back, Vamsi!");
     } else {
       toast.error("Incorrect code");
     }

@@ -23,13 +23,16 @@ import {
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import MessageTicks from './MessageTicks';
+import VoiceNoteRecorder from './VoiceNoteRecorder';
+import VoiceNotePlayer from './VoiceNotePlayer';
 
 interface ChatWindowProps {
   chatPartner: string;
   messages: Message[];
   currentUser: 'boy' | 'girl';
   onBack: () => void;
-  onSendMessage: (text: string, type?: 'text' | 'image', replyTo?: Message) => void;
+  onSendMessage: (text: string, type?: 'text' | 'image' | 'voice', replyTo?: Message, voiceDuration?: number) => void;
   onDeleteMessage: (id: string) => void;
   onEditMessage: (id: string, newText: string) => void;
 }
@@ -41,6 +44,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCalling, setIsCalling] = useState<'voice' | 'video' | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [translatingId, setTranslatingId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -69,21 +74,38 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Create a fake URL for the uploaded image (in a real app, upload to server)
       const url = URL.createObjectURL(file);
       onSendMessage(url, 'image');
     }
   };
 
+  const handleVoiceSend = (audioUrl: string, duration: number) => {
+    onSendMessage(audioUrl, 'voice', replyingTo || undefined, duration);
+    setIsRecordingVoice(false);
+    setReplyingTo(null);
+  };
+
   const startCall = (type: 'voice' | 'video') => {
     setIsCalling(type);
-    // Simulate call connecting
     toast.info(`Calling ${chatPartner}...`);
   };
 
-  const translateMessage = (text: string) => {
-    // Mock translation
-    toast.success("Translation: " + text + " (Translated)");
+  const translateMessage = async (msgId: string, text: string) => {
+    setTranslatingId(msgId);
+    try {
+      // Use MyMemory free translation API - auto-detect to English
+      const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=autodetect|en`);
+      const data = await res.json();
+      if (data.responseStatus === 200 && data.responseData?.translatedText) {
+        const translated = data.responseData.translatedText;
+        toast.success(`Translation: ${translated}`, { duration: 8000 });
+      } else {
+        toast.error("Could not translate this message");
+      }
+    } catch {
+      toast.error("Translation failed");
+    }
+    setTranslatingId(null);
   };
 
   return (
@@ -152,13 +174,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                     <span className="font-bold block opacity-70">
                       {msg.replyTo.sender === currentUser ? "You" : chatPartner}
                     </span>
-                    {msg.replyTo.type === 'image' ? '📷 Photo' : msg.replyTo.text}
+                    {msg.replyTo.type === 'image' ? '📷 Photo' : msg.replyTo.type === 'voice' ? '🎤 Voice note' : msg.replyTo.text}
                   </div>
                 )}
 
                 {/* Message Content */}
                 {msg.type === 'image' ? (
                   <img src={msg.text} alt="Shared" className="rounded-md max-w-full h-auto max-h-[300px]" />
+                ) : msg.type === 'voice' ? (
+                  <VoiceNotePlayer src={msg.text} duration={msg.voiceDuration} />
                 ) : (
                   <p className="text-sm md:text-base leading-relaxed break-words">{msg.text}</p>
                 )}
@@ -167,9 +191,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                 <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
                    {msg.isEdited && <span className="text-[10px] mr-1">edited</span>}
                    <span className="text-[10px]">{format(msg.timestamp, 'HH:mm')}</span>
+                   {isOwn && <MessageTicks status={msg.status} />}
                 </div>
 
-                {/* Actions Dropdown (Visible on hover/touch) */}
+                {/* Actions Dropdown */}
                 {!msg.isDeleted && (
                   <div className={cn(
                     "absolute top-0 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 rounded-full shadow-md",
@@ -185,17 +210,25 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                         <DropdownMenuItem onClick={() => setReplyingTo(msg)}>
                           <Reply className="h-4 w-4 mr-2" /> Reply
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => translateMessage(msg.text)}>
-                          <Languages className="h-4 w-4 mr-2" /> Translate
-                        </DropdownMenuItem>
+                        {msg.type === 'text' && (
+                          <DropdownMenuItem 
+                            onClick={() => translateMessage(msg.id, msg.text)}
+                            disabled={translatingId === msg.id}
+                          >
+                            <Languages className="h-4 w-4 mr-2" /> 
+                            {translatingId === msg.id ? 'Translating...' : 'Translate to English'}
+                          </DropdownMenuItem>
+                        )}
                         {isOwn && (
                           <>
-                            <DropdownMenuItem onClick={() => {
-                              setInputText(msg.text);
-                              setEditingId(msg.id);
-                            }}>
-                              <Edit2 className="h-4 w-4 mr-2" /> Edit
-                            </DropdownMenuItem>
+                            {msg.type === 'text' && (
+                              <DropdownMenuItem onClick={() => {
+                                setInputText(msg.text);
+                                setEditingId(msg.id);
+                              }}>
+                                <Edit2 className="h-4 w-4 mr-2" /> Edit
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem 
                               className="text-destructive"
                               onClick={() => onDeleteMessage(msg.id)}
@@ -230,7 +263,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   Replying to {replyingTo.sender === currentUser ? "You" : chatPartner}
                 </span>
                 <span className="text-muted-foreground text-xs truncate max-w-[200px] block">
-                  {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.text}
+                  {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'voice' ? '🎤 Voice note' : replyingTo.text}
                 </span>
               </div>
               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyingTo(null)}>
@@ -241,36 +274,45 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         </AnimatePresence>
         
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="shrink-0">
-            <Smile className="h-6 w-6 text-muted-foreground" />
-          </Button>
-          <Button variant="ghost" size="icon" className="shrink-0" onClick={() => fileInputRef.current?.click()}>
-            <Paperclip className="h-6 w-6 text-muted-foreground" />
-          </Button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept="image/*"
-            onChange={handleFileUpload}
-          />
-          
-          <Input 
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder={editingId ? "Edit message..." : "Type a message"}
-            className="flex-1 bg-background border-none focus-visible:ring-1 focus-visible:ring-primary"
-          />
-          
-          {inputText ? (
-            <Button size="icon" onClick={handleSend} className="bg-primary hover:bg-primary/90 rounded-full shrink-0">
-              <Send className="h-5 w-5" />
-            </Button>
+          {isRecordingVoice ? (
+            <VoiceNoteRecorder 
+              onSend={handleVoiceSend}
+              onCancel={() => setIsRecordingVoice(false)}
+            />
           ) : (
-             <Button variant="ghost" size="icon" className="shrink-0">
-              <Mic className="h-6 w-6 text-muted-foreground" />
-            </Button>
+            <>
+              <Button variant="ghost" size="icon" className="shrink-0">
+                <Smile className="h-6 w-6 text-muted-foreground" />
+              </Button>
+              <Button variant="ghost" size="icon" className="shrink-0" onClick={() => fileInputRef.current?.click()}>
+                <Paperclip className="h-6 w-6 text-muted-foreground" />
+              </Button>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*"
+                onChange={handleFileUpload}
+              />
+              
+              <Input 
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                placeholder={editingId ? "Edit message..." : "Type a message"}
+                className="flex-1 bg-background border-none focus-visible:ring-1 focus-visible:ring-primary"
+              />
+              
+              {inputText ? (
+                <Button size="icon" onClick={handleSend} className="bg-primary hover:bg-primary/90 rounded-full shrink-0">
+                  <Send className="h-5 w-5" />
+                </Button>
+              ) : (
+                <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setIsRecordingVoice(true)}>
+                  <Mic className="h-6 w-6 text-muted-foreground" />
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserType } from '../App';
 import ChatWindow from './ChatWindow';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { LogOut, Search, Phone, Video, MoreVertical } from "lucide-react";
+import { LogOut, Search } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -17,51 +17,76 @@ export interface Message {
   text: string;
   sender: 'boy' | 'girl';
   timestamp: number;
-  type: 'text' | 'image' | 'call_log';
+  type: 'text' | 'image' | 'voice' | 'call_log';
   replyTo?: Message;
   isDeleted?: boolean;
   isEdited?: boolean;
+  status: 'sent' | 'delivered' | 'seen';
+  voiceDuration?: number; // seconds
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, onLogout }) => {
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   
-  // The "other" person details
   const otherPerson = user === 'boy' ? 'girl' : 'boy';
-  const otherName = user === 'boy' ? 'Asthipanjaram' : 'Bachii'; // Using the code names or aliases
+  const otherName = user === 'boy' ? 'Bhavya' : 'Vamsi';
   
-  // Load messages
   useEffect(() => {
     const loadMessages = () => {
       const stored = localStorage.getItem('chat_messages');
       if (stored) {
-        setMessages(JSON.parse(stored));
+        const msgs: Message[] = JSON.parse(stored);
+        // Mark messages from other person as "seen" when chat is open
+        let updated = false;
+        const newMsgs = msgs.map(m => {
+          if (m.sender === otherPerson && m.status !== 'seen' && activeChat) {
+            updated = true;
+            return { ...m, status: 'seen' as const };
+          }
+          return m;
+        });
+        if (updated) {
+          localStorage.setItem('chat_messages', JSON.stringify(newMsgs));
+        }
+        setMessages(newMsgs);
       }
     };
     
     loadMessages();
-    
-    // Poll for new messages (simulate real-time)
     const interval = setInterval(loadMessages, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [activeChat, otherPerson]);
 
   const saveMessages = (newMessages: Message[]) => {
     localStorage.setItem('chat_messages', JSON.stringify(newMessages));
     setMessages(newMessages);
   };
 
-  const handleSendMessage = (text: string, type: 'text' | 'image' = 'text', replyTo?: Message) => {
+  const handleSendMessage = (text: string, type: 'text' | 'image' | 'voice' = 'text', replyTo?: Message, voiceDuration?: number) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       text,
       sender: user!,
       timestamp: Date.now(),
       type,
-      replyTo
+      replyTo,
+      status: 'sent',
+      voiceDuration
     };
-    saveMessages([...messages, newMessage]);
+    
+    const updated = [...messages, newMessage];
+    saveMessages(updated);
+    
+    // Simulate delivered after 1s
+    setTimeout(() => {
+      const stored = localStorage.getItem('chat_messages');
+      if (stored) {
+        const msgs: Message[] = JSON.parse(stored);
+        const finalMsgs = msgs.map(m => m.id === newMessage.id ? { ...m, status: 'delivered' as const } : m);
+        localStorage.setItem('chat_messages', JSON.stringify(finalMsgs));
+      }
+    }, 1000);
   };
 
   const handleDeleteMessage = (id: string) => {
@@ -78,22 +103,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, onLogout }) => {
     saveMessages(updated);
   };
 
-  // Mobile: if activeChat is null, show list. If set, show window.
-  // Desktop: Show both.
-
   const lastMessage = messages[messages.length - 1];
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Sidebar / Chat List */}
       <div className={cn(
         "w-full md:w-[400px] flex flex-col border-r border-border bg-card",
         activeChat ? "hidden md:flex" : "flex"
       )}>
-        {/* Header */}
         <div className="p-4 bg-secondary flex justify-between items-center border-b border-border">
           <Avatar className="h-10 w-10 cursor-pointer" onClick={onLogout}>
-             <AvatarFallback>{user === 'boy' ? 'B' : 'G'}</AvatarFallback>
+             <AvatarFallback>{user === 'boy' ? 'V' : 'B'}</AvatarFallback>
           </Avatar>
           <div className="flex gap-4">
             <Button variant="ghost" size="icon"><Search className="h-5 w-5" /></Button>
@@ -101,7 +121,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, onLogout }) => {
           </div>
         </div>
 
-        {/* Chat List Item */}
         <div 
           className="flex items-center gap-4 p-4 hover:bg-secondary/50 cursor-pointer transition-colors border-b border-border/10"
           onClick={() => setActiveChat(otherPerson)}
@@ -121,15 +140,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, onLogout }) => {
               )}
             </div>
             <p className="text-sm text-muted-foreground truncate">
-              {lastMessage ? (lastMessage.sender === user ? `You: ${lastMessage.text}` : lastMessage.text) : "Tap to start chatting"}
+              {lastMessage 
+                ? (lastMessage.type === 'voice' 
+                    ? (lastMessage.sender === user ? 'You: 🎤 Voice note' : '🎤 Voice note')
+                    : (lastMessage.sender === user ? `You: ${lastMessage.text}` : lastMessage.text))
+                : "Tap to start chatting"}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Main Chat Window */}
       <div className={cn(
-        "flex-1 flex flex-col bg-[#0b141a]", // WhatsApp dark background color
+        "flex-1 flex flex-col bg-[#0b141a]",
         !activeChat ? "hidden md:flex items-center justify-center" : "flex"
       )}>
         {activeChat ? (
