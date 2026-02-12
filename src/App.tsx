@@ -1,27 +1,45 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+import React, { useState, useEffect } from 'react';
+import Game from './components/Game';
+import ChatInterface from './components/ChatInterface';
+import { Toaster } from "@/components/ui/sonner";
 
-const queryClient = new QueryClient();
+export type UserType = 'boy' | 'girl' | null;
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
+const App = () => {
+  const [user, setUser] = useState<UserType>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Check session
+    const storedUser = localStorage.getItem('chat_user');
+    if (storedUser === 'boy' || storedUser === 'girl') {
+      setUser(storedUser as UserType);
+    }
+    setIsLoading(false);
+  }, []);
+
+  const handleLogin = (userType: 'boy' | 'girl') => {
+    setUser(userType);
+    localStorage.setItem('chat_user', userType);
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('chat_user');
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <>
+      {user ? (
+        <ChatInterface user={user} onLogout={handleLogout} />
+      ) : (
+        <Game onLogin={handleLogin} />
+      )}
       <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+    </>
+  );
+};
 
 export default App;
