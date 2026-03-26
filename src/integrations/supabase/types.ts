@@ -14,7 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      messages: {
+        Row: {
+          created_at: string
+          id: string
+          is_deleted: boolean
+          is_edited: boolean
+          reply_to_id: string | null
+          sender: string
+          status: string
+          text: string
+          type: string
+          voice_duration: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_deleted?: boolean
+          is_edited?: boolean
+          reply_to_id?: string | null
+          sender: string
+          status?: string
+          text: string
+          type?: string
+          voice_duration?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_deleted?: boolean
+          is_edited?: boolean
+          reply_to_id?: string | null
+          sender?: string
+          status?: string
+          text?: string
+          type?: string
+          voice_duration?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_reply_to_id_fkey"
+            columns: ["reply_to_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
