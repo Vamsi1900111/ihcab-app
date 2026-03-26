@@ -85,22 +85,22 @@ export default function PuzzlePage() {
   };
 
   // ── Touch handlers (mobile) ────────────────────────────────
-  const [touchDrag, setTouchDrag] = useState<number | null>(null);
+  const [touchSelected, setTouchSelected] = useState<number | null>(null);
 
-  const onTouchStart = (idx: number) => setTouchDrag(idx);
-
-  const onTouchEnd = (e: React.TouchEvent, idx: number) => {
-    if (touchDrag === null || touchDrag === idx) {
-      setTouchDrag(null);
-      return;
+  const onTouchStart = (idx: number) => {
+    if (touchSelected === null) {
+      setTouchSelected(idx);
+    } else if (touchSelected !== idx) {
+      setPieces((prev) => {
+        const next = [...prev];
+        [next[touchSelected], next[idx]] = [next[idx], next[touchSelected]];
+        return next;
+      });
+      setMoves((m) => m + 1);
+      setTouchSelected(null);
+    } else {
+      setTouchSelected(null);
     }
-    setPieces((prev) => {
-      const next = [...prev];
-      [next[touchDrag], next[idx]] = [next[idx], next[touchDrag]];
-      return next;
-    });
-    setMoves((m) => m + 1);
-    setTouchDrag(null);
   };
 
   // ── Verify button ──────────────────────────────────────────
@@ -228,7 +228,6 @@ export default function PuzzlePage() {
             onDrop={(e) => onDrop(e, idx)}
             onDragEnd={onDragEnd}
             onTouchStart={() => onTouchStart(idx)}
-            onTouchEnd={(e) => onTouchEnd(e, idx)}
             style={{
               width: PIECE_SIZE,
               height: PIECE_SIZE,
@@ -237,20 +236,20 @@ export default function PuzzlePage() {
               border:
                 over === idx
                   ? "2px solid #7c85ff"
-                  : dragging === idx || touchDrag === idx
+                  : dragging === idx || touchSelected === idx
                   ? "2px solid #f6c90e"
                   : piece.id === idx
                   ? "2px solid rgba(104,211,145,0.4)"
                   : "2px solid transparent",
               transform:
-                dragging === idx || touchDrag === idx
+                dragging === idx || touchSelected === idx
                   ? "scale(0.93) rotate(2deg)"
                   : over === idx
                   ? "scale(1.05)"
                   : "scale(1)",
               transition: "transform 0.15s, border 0.15s, box-shadow 0.15s",
               boxShadow:
-                dragging === idx || touchDrag === idx
+                dragging === idx || touchSelected === idx
                   ? "0 6px 20px rgba(0,0,0,0.6)"
                   : "0 2px 6px rgba(0,0,0,0.3)",
               opacity: dragging === idx ? 0.6 : 1,
