@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import MessageTicks from './MessageTicks';
 import VoiceNoteRecorder from './VoiceNoteRecorder';
 import VoiceNotePlayer from './VoiceNotePlayer';
+import { supabase } from "@/integrations/supabase/client";
 
 interface ChatWindowProps {
   chatPartner: string;
@@ -71,16 +72,55 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     setReplyingTo(null);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      onSendMessage(url, 'image');
+    if (!file) return;
+
+    const fileName = `${Date.now()}-${file.name}`;
+    const { error } = await supabase.storage
+      .from('chat-media')
+      .upload(fileName, file);
+
+    if (error) {
+      toast.error("Failed to upload image");
+      console.error(error);
+      return;
     }
+
+    const { data: urlData } = supabase.storage
+      .from('chat-media')
+      .getPublicUrl(fileName);
+
+    onSendMessage(urlData.publicUrl, 'image');
   };
 
-  const handleVoiceSend = (audioUrl: string, duration: number) => {
-    onSendMessage(audioUrl, 'voice', replyingTo || undefined, duration);
+  const handleVoiceSend = async (audioBlob: string, duration: number) => {
+    // audioBlob is a blob URL from the recorder - we need to fetch it and upload
+    try {
+      const response = await fetch(audioBlob);
+      const blob = await response.blob();
+      const fileName = `voice-${Date.now()}.webm`;
+
+      const { error } = await supabase.storage
+        .from('chat-media')
+        .upload(fileName, blob, { contentType: 'audio/webm' });
+
+      if (error) {
+        toast.error("Failed to upload voice note");
+        console.error(error);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(fileName);
+
+      onSendMessage(urlData.publicUrl, 'voice', replyingTo || undefined, duration);
+    } catch (err) {
+      toast.error("Failed to send voice note");
+      console.error(err);
+    }
+    
     setIsRecordingVoice(false);
     setReplyingTo(null);
   };
@@ -93,7 +133,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const translateMessage = async (msgId: string, text: string) => {
     setTranslatingId(msgId);
     try {
-      // Use MyMemory free translation API - auto-detect to English
       const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=autodetect|en`);
       const data = await res.json();
       if (data.responseStatus === 200 && data.responseData?.translatedText) {

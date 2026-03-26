@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { UserType } from '../App';
 import ChatWindow from './ChatWindow';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { LogOut, Search } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ChatInterfaceProps {
   user: UserType;
@@ -19,10 +20,11 @@ export interface Message {
   timestamp: number;
   type: 'text' | 'image' | 'voice' | 'call_log';
   replyTo?: Message;
+  replyToId?: string;
   isDeleted?: boolean;
   isEdited?: boolean;
   status: 'sent' | 'delivered' | 'seen';
-  voiceDuration?: number; // seconds
+  voiceDuration?: number;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, onLogout }) => {
@@ -31,76 +33,137 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, onLogout }) => {
   
   const otherPerson = user === 'boy' ? 'girl' : 'boy';
   const otherName = user === 'boy' ? 'Bhavya' : 'Vamsi';
-  
-  useEffect(() => {
-    const loadMessages = () => {
-      const stored = localStorage.getItem('chat_messages');
-      if (stored) {
-        const msgs: Message[] = JSON.parse(stored);
-        // Mark messages from other person as "seen" when chat is open
-        let updated = false;
-        const newMsgs = msgs.map(m => {
-          if (m.sender === otherPerson && m.status !== 'seen' && activeChat) {
-            updated = true;
-            return { ...m, status: 'seen' as const };
-          }
-          return m;
-        });
-        if (updated) {
-          localStorage.setItem('chat_messages', JSON.stringify(newMsgs));
+
+  // Fetch messages from Supabase
+  const fetchMessages = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching messages:', error);
+      return;
+    }
+
+    if (data) {
+      const msgs: Message[] = data.map((row: any) => ({
+        id: row.id,
+        text: row.text,
+        sender: row.sender as 'boy' | 'girl',
+        timestamp: new Date(row.created_at).getTime(),
+        type: row.type as Message['type'],
+        replyToId: row.reply_to_id,
+        isDeleted: row.is_deleted,
+        isEdited: row.is_edited,
+        status: row.status as Message['status'],
+        voiceDuration: row.voice_duration,
+      }));
+
+      // Resolve reply references
+      const msgMap = new Map(msgs.map(m => [m.id, m]));
+      for (const msg of msgs) {
+        if (msg.replyToId) {
+          msg.replyTo = msgMap.get(msg.replyToId);
         }
-        setMessages(newMsgs);
       }
+
+      setMessages(msgs);
+    }
+  }, []);
+
+  // Mark messages as seen
+  const markAsSeen = useCallback(async () => {
+    if (!activeChat) return;
+    const unseenIds = messages
+      .filter(m => m.sender === otherPerson && m.status !== 'seen')
+      .map(m => m.id);
+
+    if (unseenIds.length > 0) {
+      await supabase
+        .from('messages')
+        .update({ status: 'seen' })
+        .in('id', unseenIds);
+    }
+  }, [activeChat, messages, otherPerson]);
+
+  useEffect(() => {
+    fetchMessages();
+  }, [fetchMessages]);
+
+  // Real-time subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel('messages-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        fetchMessages();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
-    
-    loadMessages();
-    const interval = setInterval(loadMessages, 1000);
-    return () => clearInterval(interval);
-  }, [activeChat, otherPerson]);
+  }, [fetchMessages]);
 
-  const saveMessages = (newMessages: Message[]) => {
-    localStorage.setItem('chat_messages', JSON.stringify(newMessages));
-    setMessages(newMessages);
-  };
+  // Mark as seen when chat is open
+  useEffect(() => {
+    if (activeChat) {
+      markAsSeen();
+    }
+  }, [activeChat, messages, markAsSeen]);
 
-  const handleSendMessage = (text: string, type: 'text' | 'image' | 'voice' = 'text', replyTo?: Message, voiceDuration?: number) => {
-    const newMessage: Message = {
-      id: Date.now().toString(),
+  const handleSendMessage = async (
+    text: string,
+    type: 'text' | 'image' | 'voice' = 'text',
+    replyTo?: Message,
+    voiceDuration?: number
+  ) => {
+    const { error } = await supabase.from('messages').insert({
       text,
       sender: user!,
-      timestamp: Date.now(),
       type,
-      replyTo,
+      reply_to_id: replyTo?.id || null,
+      voice_duration: voiceDuration || null,
       status: 'sent',
-      voiceDuration
-    };
-    
-    const updated = [...messages, newMessage];
-    saveMessages(updated);
-    
+    });
+
+    if (error) {
+      console.error('Error sending message:', error);
+      return;
+    }
+
     // Simulate delivered after 1s
-    setTimeout(() => {
-      const stored = localStorage.getItem('chat_messages');
-      if (stored) {
-        const msgs: Message[] = JSON.parse(stored);
-        const finalMsgs = msgs.map(m => m.id === newMessage.id ? { ...m, status: 'delivered' as const } : m);
-        localStorage.setItem('chat_messages', JSON.stringify(finalMsgs));
+    setTimeout(async () => {
+      // Fetch latest to get the message id
+      const { data } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('sender', user!)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (data && data[0]) {
+        await supabase
+          .from('messages')
+          .update({ status: 'delivered' })
+          .eq('id', data[0].id)
+          .eq('status', 'sent');
       }
     }, 1000);
   };
 
-  const handleDeleteMessage = (id: string) => {
-    const updated = messages.map(m => 
-      m.id === id ? { ...m, isDeleted: true, text: "🚫 This message was deleted" } : m
-    );
-    saveMessages(updated);
+  const handleDeleteMessage = async (id: string) => {
+    await supabase
+      .from('messages')
+      .update({ is_deleted: true, text: '🚫 This message was deleted' })
+      .eq('id', id);
   };
 
-  const handleEditMessage = (id: string, newText: string) => {
-    const updated = messages.map(m => 
-      m.id === id ? { ...m, text: newText, isEdited: true } : m
-    );
-    saveMessages(updated);
+  const handleEditMessage = async (id: string, newText: string) => {
+    await supabase
+      .from('messages')
+      .update({ text: newText, is_edited: true })
+      .eq('id', id);
   };
 
   const lastMessage = messages[messages.length - 1];
