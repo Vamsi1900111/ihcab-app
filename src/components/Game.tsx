@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
 interface GameProps {
   onLogin: (userType: 'boy' | 'girl') => void;
@@ -14,6 +15,7 @@ const Game: React.FC<GameProps> = ({ onLogin }) => {
   const [score, setScore] = useState(0);
   const [code, setCode] = useState("");
   const [gameOver, setGameOver] = useState(false);
+  const navigate = useNavigate();
 
   // Game constants
   const GRAVITY = 0.6;
@@ -121,13 +123,15 @@ const Game: React.FC<GameProps> = ({ onLogin }) => {
   const handleCodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = code.trim().toLowerCase();
-    
+
     if (cleanCode === 'asthipanjaram') {
       onLogin('girl');
       toast.success("Welcome back, Bhavya!");
+      navigate("/puzzle"); // <-- go to puzzle page
     } else if (cleanCode === 'bachii') {
       onLogin('boy');
       toast.success("Welcome back, Vamsi!");
+      navigate("/puzzle"); // <-- go to puzzle page
     } else {
       toast.error("Incorrect code");
     }
